@@ -13,7 +13,8 @@ setuptools.setup(
         'biotite',
         'numpy',
         'pandas',
-        'matplotlib'
+        'matplotlib',
+        'sklearn'
     ]
 )
 
