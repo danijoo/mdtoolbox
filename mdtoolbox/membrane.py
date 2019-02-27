@@ -1,62 +1,84 @@
-from biotite.structure import stack, AtomArray, CellList
+from biotite.structure import stack, AtomArray, AtomArrayStack
+import biotite.structure as struct
 import numpy as np
-from sklearn import decomposition
 
 
-def _smallest_eigenvector(coords):
-    """ Returns the eigenvector with the smallest eigenvalue for the set of
-    coords """
-    pca = decomposition.PCA()
-    pca.fit_transform(coords)
-    eigenvalues = pca.explained_variance_
-    eigenvectors = pca.components_
-    min_value_idx = np.argmin(eigenvalues)
-    min_vector = eigenvectors[min_value_idx, min_value_idx]
-    return min_vector
-
-
-def membrane_leaflet_identification(atoms, cutoff=50, lipid_head="P", periodic=False):
-    r"""
-    Identify membrane leaflets in membrane simulations
+def membrane_leaflet_identification(atoms, lipid_head="P"):
+    """
+    Simple algorithm to identify membrane leaflets in a topology
 
     Parameters
-    ----------
+    ---------
     atoms : AtomArray or AtomArrayStack
-        Models to calculate find leaflets in
-    cutoff : float
-        Cutoff distance for lipid headgroup neighbor search
-    lipid_head : str
-        Name of a headgroup atom
-    periodic : bool
-        Wether to take into account PBC or not
+    lipid_head : str, optional
+        Name of the lipid headgroup
 
     Returns
     -------
-    angles: ndarray, dtype=float
-        For each lipid_head atom in each model, the id of its leaflet (either 0
-        or 1)
+    tuple of ndarray
+        Two masks for AtomArray identifying headgroups of the upper and lower
+        leaflet
+
     """
-    if isinstance(atoms, AtomArray):
-        atoms = stack([atoms])
-    atoms = atoms[:, atoms.atom_name == lipid_head]
+    if isinstance(atoms, AtomArrayStack):
+        atoms = atoms[0]
+    lipid_heads = atoms.atom_name == lipid_head
 
-    leaflet = np.full((len(atoms), atoms.array_length()), np.nan)
-    for frame in range(len(atoms)):
-        frame_atoms = atoms[frame, :]
+    z_center = struct.centroid(atoms[lipid_heads])[2]
+    upper = (atoms.coord[:, 2] < z_center) & lipid_heads
+    lower = np.invert(upper) & lipid_heads
 
-        # for every headgroup, get all other headgroups inside the cutoff
-        cell_list = CellList(frame_atoms, cell_size=cutoff, periodic=periodic)
-        neighbor_list = cell_list.get_atoms(frame_atoms.coord, radius=cutoff)
+    return upper, lower
 
-        # calculate the smallest eigenvector for each set of headgroups
-        for lipid_id in range(len(neighbor_list)):
-            neighbors = neighbor_list[lipid_id]
-            neighbors = neighbors[neighbors >= 0]
-            coords = frame_atoms[neighbors].coord
-            leaflet[frame, lipid_id] = _smallest_eigenvector(coords)
 
-    # normalize and return
-    leaflet[leaflet > 0] = 1
-    leaflet[leaflet < 0] = 0
-    return leaflet
+def membrane_thickness(upper_atoms, lower_atoms):
+    """ Calculate membrane thickness. For each atom, the algorithm calculates
+    the distance to the closest atom in the other leaflet.
+
+    Parameters
+    ----------
+    upper_atoms, lower_atoms : AtomArray or AtomArrayStack
+        atoms of the lower and upper membrane leaflet to use for distance
+        calculation
+
+    Returns
+    -------
+    ndarray
+        For each frame, a set of x and y coordinates and the corresponding
+        membrane thickness is returned
+
+    """
+    if not isinstance(lower_atoms, AtomArrayStack):
+        lower_atoms = stack([lower_atoms])
+    if not isinstance(upper_atoms, AtomArrayStack):
+        upper_atoms = stack([upper_atoms])
+
+    thickness_upper = np.full([len(upper_atoms), upper_atoms.array_length(), 3],
+                          0.0)
+    thickness_lower = np.full([len(lower_atoms), lower_atoms.array_length(), 3],
+                              0.0)
+    for idx in range(upper_atoms.array_length()):
+        atom = upper_atoms[:, idx]
+        dist = struct.distance(atom, lower_atoms)
+
+        atom_min_dist = dist.min(axis=1)
+
+        thickness_upper[:, idx, 0:2] = atom.coord[:, 0, 0:2]
+        thickness_upper[:, idx, -1] = atom_min_dist
+
+
+    for idx in range(lower_atoms.array_length()):
+        atom = lower_atoms[:, idx]
+        dist = struct.distance(atom, upper_atoms)
+
+        atom_min_dist = dist.min(axis=1)
+
+        thickness_lower[:, idx, 0:2] = atom.coord[:, 0, 0:2]
+        thickness_lower[:, idx, -1] = atom_min_dist
+
+    thickness = np.concatenate([thickness_upper, thickness_lower], axis=1)
+    if thickness.shape[0] == 1:
+        return thickness[0, ...]
+    else:
+        return thickness
 
