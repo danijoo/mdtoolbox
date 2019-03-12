@@ -54,7 +54,7 @@ def membrane_thickness(upper_atoms, lower_atoms):
         upper_atoms = stack([upper_atoms])
 
     thickness_upper = np.full([len(upper_atoms), upper_atoms.array_length(), 3],
-                          0.0)
+                              0.0)
     thickness_lower = np.full([len(lower_atoms), lower_atoms.array_length(), 3],
                               0.0)
     for idx in range(upper_atoms.array_length()):
@@ -77,6 +77,7 @@ def membrane_thickness(upper_atoms, lower_atoms):
         thickness_lower[:, idx, -1] = atom_min_dist
 
     thickness = np.concatenate([thickness_upper, thickness_lower], axis=1)
+
     if thickness.shape[0] == 1:
         return thickness[0, ...]
     else:
