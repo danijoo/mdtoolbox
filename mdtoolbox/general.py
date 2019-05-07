@@ -1,5 +1,14 @@
 import numpy as np
 import biotite.structure as struct
+import biotite.structure.io.xtc as xtc
+
+def get_xtc_time(filename):
+    """ Returns the starting time and first timestep of the given xtc traj """
+    f = xtc.XTCFile()
+    f.read(filename, start=0, stop=2)
+    time = f.get_time()
+    time[1] -= time[0]
+    return time
 
 def psi_iter(atoms):
     """ Iterate over all psi angles in a protein. """
